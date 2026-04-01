@@ -5,23 +5,17 @@ echo "Setting up git daemon export markers and hooks..."
 
 # Touch git-daemon-export-ok and install pre-receive hook in each repository
 for repo in /repos/*; do
-    if [ -d "$repo/.git" ]; then
-        # Non-bare repository
-        echo "Enabling daemon export for $repo (non-bare)"
-        touch "$repo/.git/git-daemon-export-ok"
-        mkdir -p "$repo/.git/hooks"
-        cp /usr/local/bin/enforce-safe-writes.sh "$repo/.git/hooks/pre-receive"
-        chmod +x "$repo/.git/hooks/pre-receive"
-        # Block pushes to the checked-out branch (would desync working tree from HEAD)
-        git -C "$repo" config receive.denyCurrentBranch refuse
-    elif [ -f "$repo/HEAD" ]; then
-        # Bare repository
-        echo "Enabling daemon export for $repo (bare)"
-        touch "$repo/git-daemon-export-ok"
-        mkdir -p "$repo/hooks"
-        cp /usr/local/bin/enforce-safe-writes.sh "$repo/hooks/pre-receive"
-        chmod +x "$repo/hooks/pre-receive"
+    if [ ! -d "$repo/.git" ]; then
+        echo "Error: $repo is not a non-bare git repository" >&2
+        exit 1
     fi
+    echo "Enabling daemon export for $repo"
+    touch "$repo/.git/git-daemon-export-ok"
+    mkdir -p "$repo/.git/hooks"
+    cp /usr/local/bin/enforce-safe-writes.sh "$repo/.git/hooks/pre-receive"
+    chmod +x "$repo/.git/hooks/pre-receive"
+    # Block pushes to the checked-out branch (would desync working tree from HEAD)
+    git -C "$repo" config receive.denyCurrentBranch refuse
 done
 
 echo "Starting git daemon..."

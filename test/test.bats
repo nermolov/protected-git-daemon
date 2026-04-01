@@ -44,26 +44,6 @@ setup_file() {
     git_config "$tmpdir/repos/nonbare2"
     make_commit "$tmpdir/repos/nonbare2" "initial"
 
-    # --- bare repo seeded via a temp clone (default branch: main) ---
-    git init -b main --bare "$tmpdir/repos/bare"
-    local seed
-    seed=$(mktemp -d)
-    git clone "$tmpdir/repos/bare" "$seed/clone"
-    git_config "$seed/clone"
-    make_commit "$seed/clone" "initial"
-    git -C "$seed/clone" push origin HEAD
-    rm -rf "$seed"
-
-    # --- bare repo with master as default branch ---
-    git init -b master --bare "$tmpdir/repos/bare-master"
-    local seed2
-    seed2=$(mktemp -d)
-    git clone "$tmpdir/repos/bare-master" "$seed2/clone"
-    git_config "$seed2/clone"
-    make_commit "$seed2/clone" "initial"
-    git -C "$seed2/clone" push origin HEAD
-    rm -rf "$seed2"
-
     # --- pick a free non-privileged port ---
     local port
     port=$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
@@ -75,8 +55,6 @@ setup_file() {
         -p "$port:9418" \
         -v "$tmpdir/repos/nonbare:/repos/nonbare:Z" \
         -v "$tmpdir/repos/nonbare2:/repos/nonbare2:Z" \
-        -v "$tmpdir/repos/bare:/repos/bare:Z" \
-        -v "$tmpdir/repos/bare-master:/repos/bare-master:Z" \
         git)
     echo "$cid" > "$BATS_FILE_TMPDIR/container_id"
 
@@ -116,8 +94,6 @@ setup() {
     PORT=$(cat "$BATS_FILE_TMPDIR/port")
     NONBARE="git://localhost:$PORT/nonbare/.git"
     NONBARE2="git://localhost:$PORT/nonbare2/.git"
-    BARE="git://localhost:$PORT/bare"
-    BARE_MASTER="git://localhost:$PORT/bare-master"
     WORK=$(mktemp -d "$TEST_TMPDIR/work.XXXXXX")
 }
 
@@ -138,15 +114,6 @@ teardown() {
     assert_success
 }
 
-@test "normal push to new branch succeeds (bare)" {
-    git clone "$BARE" "$WORK/clone"
-    git_config "$WORK/clone"
-    git -C "$WORK/clone" checkout -b feat/allowed-bare
-    make_commit "$WORK/clone" "bare allowed commit"
-    run bash -c "git -C '$WORK/clone' push origin feat/allowed-bare 2>&1"
-    assert_success
-}
-
 @test "creating a new tag succeeds (non-bare)" {
     git clone "$NONBARE" "$WORK/clone"
     git_config "$WORK/clone"
@@ -155,17 +122,6 @@ teardown() {
     git -C "$WORK/clone" push origin feat/tag-create
     git -C "$WORK/clone" tag v0.1-new
     run bash -c "git -C '$WORK/clone' push origin v0.1-new 2>&1"
-    assert_success
-}
-
-@test "creating a new tag succeeds (bare)" {
-    git clone "$BARE" "$WORK/clone"
-    git_config "$WORK/clone"
-    git -C "$WORK/clone" checkout -b feat/tag-create-bare
-    make_commit "$WORK/clone" "bare tag base commit"
-    git -C "$WORK/clone" push origin feat/tag-create-bare
-    git -C "$WORK/clone" tag v0.1-bare
-    run bash -c "git -C '$WORK/clone' push origin v0.1-bare 2>&1"
     assert_success
 }
 
@@ -258,76 +214,17 @@ teardown() {
 }
 
 # ---------------------------------------------------------------------------
-# Denial — bare repo
+# Entrypoint guard
 # ---------------------------------------------------------------------------
 
-@test "branch deletion denied (bare)" {
-    git clone "$BARE" "$WORK/clone"
-    git_config "$WORK/clone"
-    git -C "$WORK/clone" checkout -b feat/deletion-bare
-    make_commit "$WORK/clone" "bare deletion branch commit"
-    git -C "$WORK/clone" push origin feat/deletion-bare
-    run bash -c "git -C '$WORK/clone' push origin --delete feat/deletion-bare 2>&1"
+@test "entrypoint rejects bare repo" {
+    local bare
+    bare=$(mktemp -d)
+    git init --bare "$bare/repo"
+    run podman run --rm \
+        -v "$bare/repo:/repos/repo:Z" \
+        git
     assert_failure
-    assert_output --partial "Deletion of"
-}
-
-@test "force push denied (bare)" {
-    git clone "$BARE" "$WORK/clone"
-    git_config "$WORK/clone"
-    git -C "$WORK/clone" checkout -b feat/force-bare
-    make_commit "$WORK/clone" "bare force commit a"
-    git -C "$WORK/clone" push origin feat/force-bare
-    git -C "$WORK/clone" reset --hard HEAD~1
-    make_commit "$WORK/clone" "bare force commit b"
-    run bash -c "git -C '$WORK/clone' push --force origin feat/force-bare 2>&1"
-    assert_failure
-    assert_output --partial "Force push"
-}
-
-@test "push to refs/replace/ denied (bare)" {
-    git clone "$BARE" "$WORK/clone"
-    git_config "$WORK/clone"
-    local initial
-    initial=$(git -C "$WORK/clone" rev-parse HEAD)
-    make_commit "$WORK/clone" "bare replacement commit"
-    local replacement
-    replacement=$(git -C "$WORK/clone" rev-parse HEAD)
-    git -C "$WORK/clone" replace "$initial" "$replacement"
-    run bash -c "git -C '$WORK/clone' push origin 'refs/replace/$initial' 2>&1"
-    assert_failure
-    assert_output --partial "refs/replace/"
-}
-
-@test "push to main denied (bare)" {
-    git clone "$BARE" "$WORK/clone"
-    git_config "$WORK/clone"
-    make_commit "$WORK/clone" "bare main direct commit"
-    run bash -c "git -C '$WORK/clone' push origin main 2>&1"
-    assert_failure
-    assert_output --partial "Direct pushes to"
-}
-
-@test "push to master denied (bare)" {
-    git clone "$BARE_MASTER" "$WORK/clone"
-    git_config "$WORK/clone"
-    make_commit "$WORK/clone" "bare master direct commit"
-    run bash -c "git -C '$WORK/clone' push origin master 2>&1"
-    assert_failure
-    assert_output --partial "Direct pushes to"
-}
-
-@test "tag mutation denied (bare)" {
-    git clone "$BARE" "$WORK/clone"
-    git_config "$WORK/clone"
-    git -C "$WORK/clone" checkout -b feat/tag-mutation-bare
-    make_commit "$WORK/clone" "bare tag mutation commit a"
-    git -C "$WORK/clone" push origin feat/tag-mutation-bare
-    git -C "$WORK/clone" tag v0.3
-    git -C "$WORK/clone" push origin v0.3
-    make_commit "$WORK/clone" "bare tag mutation commit b"
-    git -C "$WORK/clone" tag -f v0.3 HEAD
-    run bash -c "git -C '$WORK/clone' push --force origin v0.3 2>&1"
-    assert_failure
-    assert_output --partial "Updating existing tag"
+    assert_output --partial "is not a non-bare git repository"
+    rm -rf "$bare"
 }
