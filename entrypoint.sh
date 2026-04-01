@@ -9,7 +9,7 @@ for repo in /repos/*; do
         echo "Error: $repo is not a non-bare git repository" >&2
         exit 1
     fi
-    echo "Enabling daemon export for $repo"
+    echo "Enabling daemon export for git://[hostname]/$(basename "$repo")/.git"
     touch "$repo/.git/git-daemon-export-ok"
     mkdir -p "$repo/.git/hooks"
     cp /usr/local/bin/enforce-safe-writes.sh "$repo/.git/hooks/pre-receive"
@@ -19,7 +19,6 @@ for repo in /repos/*; do
 done
 
 echo "Starting git daemon..."
-echo "Repositories will be accessible at git://hostname/<repo-name>"
 
 # Start git daemon with push enabled
 exec git daemon \

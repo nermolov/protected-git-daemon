@@ -14,6 +14,6 @@ podman run \
   protected-git-daemon
 ```
 
-use `git://hostname/your-repo/.git` as your remote in the sandbox
+use `git://[hostname]/your-repo/.git` as your remote in the sandbox
 
 run tests: `./test/bats/bin/bats test/test.bats`
