@@ -39,7 +39,12 @@ setup_file() {
     git_config "$tmpdir/repos/nonbare"
     make_commit "$tmpdir/repos/nonbare" "initial"
 
-    # --- bare repo seeded via a temp clone ---
+    # --- non-bare repo with a feature branch checked out (for denyCurrentBranch tests) ---
+    git init -b feat/locked "$tmpdir/repos/nonbare2"
+    git_config "$tmpdir/repos/nonbare2"
+    make_commit "$tmpdir/repos/nonbare2" "initial"
+
+    # --- bare repo seeded via a temp clone (default branch: main) ---
     git init -b main --bare "$tmpdir/repos/bare"
     local seed
     seed=$(mktemp -d)
@@ -48,6 +53,16 @@ setup_file() {
     make_commit "$seed/clone" "initial"
     git -C "$seed/clone" push origin HEAD
     rm -rf "$seed"
+
+    # --- bare repo with master as default branch ---
+    git init -b master --bare "$tmpdir/repos/bare-master"
+    local seed2
+    seed2=$(mktemp -d)
+    git clone "$tmpdir/repos/bare-master" "$seed2/clone"
+    git_config "$seed2/clone"
+    make_commit "$seed2/clone" "initial"
+    git -C "$seed2/clone" push origin HEAD
+    rm -rf "$seed2"
 
     # --- pick a free non-privileged port ---
     local port
@@ -59,7 +74,9 @@ setup_file() {
     cid=$(podman run -d --rm \
         -p "$port:9418" \
         -v "$tmpdir/repos/nonbare:/repos/nonbare:Z" \
+        -v "$tmpdir/repos/nonbare2:/repos/nonbare2:Z" \
         -v "$tmpdir/repos/bare:/repos/bare:Z" \
+        -v "$tmpdir/repos/bare-master:/repos/bare-master:Z" \
         git)
     echo "$cid" > "$BATS_FILE_TMPDIR/container_id"
 
@@ -98,7 +115,9 @@ setup() {
     TEST_TMPDIR=$(cat "$BATS_FILE_TMPDIR/tmpdir")
     PORT=$(cat "$BATS_FILE_TMPDIR/port")
     NONBARE="git://localhost:$PORT/nonbare/.git"
+    NONBARE2="git://localhost:$PORT/nonbare2/.git"
     BARE="git://localhost:$PORT/bare"
+    BARE_MASTER="git://localhost:$PORT/bare-master"
     WORK=$(mktemp -d "$TEST_TMPDIR/work.XXXXXX")
 }
 
@@ -119,11 +138,12 @@ teardown() {
     assert_success
 }
 
-@test "normal push to main succeeds (bare)" {
+@test "normal push to new branch succeeds (bare)" {
     git clone "$BARE" "$WORK/clone"
     git_config "$WORK/clone"
+    git -C "$WORK/clone" checkout -b feat/allowed-bare
     make_commit "$WORK/clone" "bare allowed commit"
-    run bash -c "git -C '$WORK/clone' push origin main 2>&1"
+    run bash -c "git -C '$WORK/clone' push origin feat/allowed-bare 2>&1"
     assert_success
 }
 
@@ -199,12 +219,31 @@ teardown() {
 }
 
 @test "push to checked-out branch denied (non-bare)" {
-    git clone "$NONBARE" "$WORK/clone"
+    git clone "$NONBARE2" "$WORK/clone"
     git_config "$WORK/clone"
     make_commit "$WORK/clone" "checked-out branch commit"
-    run bash -c "git -C '$WORK/clone' push origin main 2>&1"
+    run bash -c "git -C '$WORK/clone' push origin feat/locked 2>&1"
     assert_failure
     assert_output --partial "refusing to update checked out branch"
+}
+
+@test "push to main denied (non-bare)" {
+    git clone "$NONBARE" "$WORK/clone"
+    git_config "$WORK/clone"
+    make_commit "$WORK/clone" "nonbare main direct commit"
+    run bash -c "git -C '$WORK/clone' push origin main 2>&1"
+    assert_failure
+    assert_output --partial "Direct pushes to"
+}
+
+@test "push to master denied (non-bare)" {
+    git clone "$NONBARE" "$WORK/clone"
+    git_config "$WORK/clone"
+    git -C "$WORK/clone" checkout -b master
+    make_commit "$WORK/clone" "nonbare master commit"
+    run bash -c "git -C '$WORK/clone' push origin master 2>&1"
+    assert_failure
+    assert_output --partial "Direct pushes to"
 }
 
 # ---------------------------------------------------------------------------
@@ -247,6 +286,24 @@ teardown() {
     run bash -c "git -C '$WORK/clone' push origin 'refs/replace/$initial' 2>&1"
     assert_failure
     assert_output --partial "refs/replace/"
+}
+
+@test "push to main denied (bare)" {
+    git clone "$BARE" "$WORK/clone"
+    git_config "$WORK/clone"
+    make_commit "$WORK/clone" "bare main direct commit"
+    run bash -c "git -C '$WORK/clone' push origin main 2>&1"
+    assert_failure
+    assert_output --partial "Direct pushes to"
+}
+
+@test "push to master denied (bare)" {
+    git clone "$BARE_MASTER" "$WORK/clone"
+    git_config "$WORK/clone"
+    make_commit "$WORK/clone" "bare master direct commit"
+    run bash -c "git -C '$WORK/clone' push origin master 2>&1"
+    assert_failure
+    assert_output --partial "Direct pushes to"
 }
 
 @test "tag mutation denied (bare)" {

@@ -24,6 +24,14 @@ while read oldrev newrev refname; do
       ;;
   esac
 
+  # Block direct pushes to main and master branches
+  case "$refname" in
+    refs/heads/main|refs/heads/master)
+      echo "ERROR: Direct pushes to '${refname#refs/heads/}' are not allowed."
+      exit 1
+      ;;
+  esac
+
   # Block updates to existing tags (tags must be immutable)
   case "$refname" in
     refs/tags/*)
