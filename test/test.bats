@@ -158,6 +158,17 @@ teardown() {
     assert_success
 }
 
+@test "creating a new tag succeeds (bare)" {
+    git clone "$BARE" "$WORK/clone"
+    git_config "$WORK/clone"
+    git -C "$WORK/clone" checkout -b feat/tag-create-bare
+    make_commit "$WORK/clone" "bare tag base commit"
+    git -C "$WORK/clone" push origin feat/tag-create-bare
+    git -C "$WORK/clone" tag v0.1-bare
+    run bash -c "git -C '$WORK/clone' push origin v0.1-bare 2>&1"
+    assert_success
+}
+
 # ---------------------------------------------------------------------------
 # Denial — non-bare repo
 # ---------------------------------------------------------------------------
